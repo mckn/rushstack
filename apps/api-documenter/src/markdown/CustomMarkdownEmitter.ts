@@ -24,6 +24,7 @@ import {
   IMarkdownEmitterOptions
 } from './MarkdownEmitter';
 import { IndentedWriter } from '../utils/IndentedWriter';
+import { DocMetaHeader } from '../nodes/DocMetaHeader';
 
 export interface ICustomMarkdownEmitterOptions extends IMarkdownEmitterOptions {
   contextApiItem: ApiItem | undefined;
@@ -144,6 +145,12 @@ export class CustomMarkdownEmitter extends MarkdownEmitter {
         this.writeNodes(docEmphasisSpan.nodes, context);
         context.boldRequested = oldBold;
         context.italicRequested = oldItalic;
+        break;
+      }
+
+      case CustomDocNodeKind.MetaHeader: {
+        const docMetaHeader: DocMetaHeader = docNode as DocMetaHeader;
+        docMetaHeader.writeTo(writer);
         break;
       }
       default:

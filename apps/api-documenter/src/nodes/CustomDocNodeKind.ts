@@ -5,6 +5,7 @@ import { DocNoteBox } from './DocNoteBox';
 import { DocTable } from './DocTable';
 import { DocTableCell } from './DocTableCell';
 import { DocTableRow } from './DocTableRow';
+import { DocMetaHeader } from './DocMetaHeader';
 
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
@@ -12,13 +13,19 @@ import { DocTableRow } from './DocTableRow';
 /**
  * Identifies custom subclasses of {@link DocNode}.
  */
+// Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
+// See LICENSE in the project root for license information.
+/**
+ * Identifies custom subclasses of {@link DocNode}.
+ */
 export const enum CustomDocNodeKind {
-  EmphasisSpan                  = 'EmphasisSpan',
-  Heading                       = 'Heading',
-  NoteBox                       = 'NoteBox',
-  Table                         = 'Table',
-  TableCell                     = 'TableCell',
-  TableRow                      = 'TableRow'
+    EmphasisSpan = 'EmphasisSpan',
+    Heading = 'Heading',
+    NoteBox = 'NoteBox',
+    Table = 'Table',
+    TableCell = 'TableCell',
+    TableRow = 'TableRow',
+    MetaHeader = "MetaHeader"
 }
 
 export class CustomDocNodes {
@@ -34,7 +41,8 @@ export class CustomDocNodes {
         { docNodeKind: CustomDocNodeKind.NoteBox, constructor: DocNoteBox },
         { docNodeKind: CustomDocNodeKind.Table, constructor: DocTable },
         { docNodeKind: CustomDocNodeKind.TableCell, constructor: DocTableCell },
-        { docNodeKind: CustomDocNodeKind.TableRow, constructor: DocTableRow }
+        { docNodeKind: CustomDocNodeKind.TableRow, constructor: DocTableRow },
+        { docNodeKind: CustomDocNodeKind.MetaHeader, constructor: DocMetaHeader }
       ]);
 
       configuration.docNodeManager.registerAllowableChildren(CustomDocNodeKind.EmphasisSpan, [
@@ -45,7 +53,8 @@ export class CustomDocNodes {
       configuration.docNodeManager.registerAllowableChildren(DocNodeKind.Section, [
         CustomDocNodeKind.Heading,
         CustomDocNodeKind.NoteBox,
-        CustomDocNodeKind.Table
+        CustomDocNodeKind.Table,
+        CustomDocNodeKind.MetaHeader
       ]);
 
       configuration.docNodeManager.registerAllowableChildren(DocNodeKind.Paragraph, [

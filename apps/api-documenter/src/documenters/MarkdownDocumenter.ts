@@ -49,6 +49,7 @@ import { DocEmphasisSpan } from '../nodes/DocEmphasisSpan';
 import { DocTableRow } from '../nodes/DocTableRow';
 import { DocTableCell } from '../nodes/DocTableCell';
 import { DocNoteBox } from '../nodes/DocNoteBox';
+import { DocMetaHeader } from '../nodes/DocMetaHeader';
 import { Utilities } from '../utils/Utilities';
 import { CustomMarkdownEmitter } from '../markdown/CustomMarkdownEmitter';
 import { PluginLoader } from '../plugin/PluginLoader';
@@ -107,12 +108,8 @@ export class MarkdownDocumenter {
     }
   }
 
-  private _writeApiItemPage(apiItem: ApiItem): void {
+  private _appendApiItemPage(output: DocSection, apiItem: ApiItem, isPage: boolean = false): void {
     const configuration: TSDocConfiguration = this._tsdocConfiguration;
-    const output: DocSection = new DocSection({ configuration: this._tsdocConfiguration });
-
-    this._writeBreadcrumb(output, apiItem);
-
     const scopedName: string = apiItem.getScopedNameWithinPackage();
 
     switch (apiItem.kind) {
@@ -127,11 +124,11 @@ export class MarkdownDocumenter {
         break;
       case ApiItemKind.Constructor:
       case ApiItemKind.ConstructSignature:
-        output.appendNode(new DocHeading({ configuration, title: scopedName }));
+        output.appendNode(new DocHeading({ configuration, title: Utilities.getConciseSignature(apiItem), level: 2 }));
         break;
       case ApiItemKind.Method:
       case ApiItemKind.MethodSignature:
-        output.appendNode(new DocHeading({ configuration, title: `${scopedName} method` }));
+        output.appendNode(new DocHeading({ configuration, title: `${apiItem.displayName} method`, level: 2 }));
         break;
       case ApiItemKind.Function:
         output.appendNode(new DocHeading({ configuration, title: `${scopedName} function` }));
@@ -144,12 +141,11 @@ export class MarkdownDocumenter {
         break;
       case ApiItemKind.Package:
         console.log(`Writing ${apiItem.displayName} package`);
-        const unscopedPackageName: string = PackageName.getUnscopedName(apiItem.displayName);
-        output.appendNode(new DocHeading({ configuration, title: `${unscopedPackageName} package` }));
+        output.appendNode(new DocHeading({ configuration, title: `${apiItem.displayName} package` }));
         break;
       case ApiItemKind.Property:
       case ApiItemKind.PropertySignature:
-        output.appendNode(new DocHeading({ configuration, title: `${scopedName} property` }));
+        output.appendNode(new DocHeading({ configuration, title: `${apiItem.displayName} property`, level: 2 }));
         break;
       case ApiItemKind.TypeAlias:
         output.appendNode(new DocHeading({ configuration, title: `${scopedName} type` }));
@@ -197,13 +193,29 @@ export class MarkdownDocumenter {
         output.appendNode(
           new DocParagraph({ configuration }, [
             new DocEmphasisSpan({ configuration, bold: true}, [
-              new DocPlainText({ configuration, text: 'Signature:' })
+              new DocPlainText({ configuration, text: 'Signature' })
             ])
           ])
         );
         output.appendNode(
           new DocFencedCode({ configuration, code: apiItem.getExcerptWithModifiers(), language: 'typescript' })
         );
+
+        const importCode = isPage && this._formatImport(apiItem);
+
+        if (importCode) {
+          output.appendNode(
+            new DocParagraph({ configuration }, [
+              new DocEmphasisSpan({ configuration, bold: true}, [
+                new DocPlainText({ configuration, text: 'Import' })
+              ])
+            ])
+          );
+          
+          output.appendNode(
+            new DocFencedCode({ configuration, code: importCode, language: 'typescript' })
+          );
+        }
       }
     }
 
@@ -257,13 +269,32 @@ export class MarkdownDocumenter {
     }
 
     if (appendRemarks) {
-    this._writeRemarksSection(output, apiItem);
+      this._writeRemarksSection(output, apiItem);
     }
+  }
+
+  _formatImport(apiItem: ApiDeclaredItem): string | null {
+    const pkg = apiItem.getAssociatedPackage();
+    if (!pkg) {
+      return null;
+    }
+    const toImport = apiItem.getScopedNameWithinPackage();
+    if (toImport.indexOf('.') < 0) {
+      return `import { ${Utilities.getImportName(toImport)} } from '${pkg.displayName}';`
+    }
+    const parts = toImport.split('.');
+    return `import { ${Utilities.getImportName(parts[0])} } from '${pkg.displayName}';\nconst { ${Utilities.getImportName(parts[1])} } = ${Utilities.getImportName(parts[0])};`;
+  }
+
+  private _writeApiItemPage(apiItem: ApiItem): void {
+    const output: DocSection = new DocSection({ configuration: this._tsdocConfiguration });
+    
+    //this._writeBreadcrumb(output, apiItem);
+    this._writeHugoPageMetaHeader(output, apiItem);
+    this._appendApiItemPage(output, apiItem, true);
 
     const filename: string = path.join(this._outputFolder, this._getFilenameForApiItem(apiItem));
     const stringBuilder: StringBuilder = new StringBuilder();
-
-    stringBuilder.append('<!-- Do not edit this file. It is automatically generated by API Documenter. -->\n\n');
 
     this._markdownEmitter.emit(stringBuilder, output, {
       contextApiItem: apiItem,
@@ -285,9 +316,39 @@ export class MarkdownDocumenter {
       pageContent = eventArgs.pageContent;
     }
 
+    
     FileSystem.writeFile(filename, pageContent, {
+      ensureFolderExists: true,
       convertLineEndings: this._documenterConfig ? this._documenterConfig.newlineKind : NewlineKind.CrLf
     });
+  }
+
+  private _writeHugoPageMetaHeader(output: DocSection, apiItem: ApiItem) {
+    const packageItem = apiItem.getAssociatedPackage();
+    const title = apiItem.kind === ApiItemKind.Model ? 'API Reference' : apiItem.displayName;
+
+    if (!packageItem) {
+      return output.appendNode(new DocMetaHeader({ 
+        configuration: this._tsdocConfiguration,
+        title: title,
+        keywords: [
+          'grafana',
+          'documentation',
+          'sdk'
+        ],
+      }));
+    }
+
+    output.appendNode(new DocMetaHeader({ 
+      configuration: this._tsdocConfiguration,
+      title: title,
+      keywords: [
+        'grafana',
+        'documentation',
+        'sdk',
+        packageItem.name
+      ],
+    }));
   }
 
   private _writeRemarksSection(output: DocSection, apiItem: ApiItem): void {
@@ -300,6 +361,8 @@ export class MarkdownDocumenter {
           output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Remarks' }));
           this._appendSection(output, tsdocComment.remarksBlock.content);
         }
+
+        console.log('tsDocComment.customBlocks', JSON.stringify(tsdocComment.customBlocks.map(c => c.blockTag.tagName)));
 
         // Write the @example blocks
         const exampleBlocks: DocBlock[] = tsdocComment.customBlocks.filter(x => x.blockTag.tagNameWithUpperCase
@@ -366,7 +429,7 @@ export class MarkdownDocumenter {
     }
 
     if (packagesTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Packages' }));
+      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Packages', level: 2 }));
       output.appendNode(packagesTable);
     }
   }
@@ -503,13 +566,19 @@ export class MarkdownDocumenter {
       headerTitles: [ 'Constructor', 'Modifiers', 'Description' ]
     });
 
+    const constructorsSection: DocSection = new DocSection({ configuration });
+
     const propertiesTable: DocTable = new DocTable({ configuration,
       headerTitles: [ 'Property', 'Modifiers', 'Type', 'Description' ]
     });
 
+    const propertiesSection: DocSection = new DocSection({ configuration });
+
     const methodsTable: DocTable = new DocTable({ configuration,
       headerTitles: [ 'Method', 'Modifiers', 'Description' ]
     });
+
+    const methodsSection: DocSection = new DocSection({ configuration });
 
     for (const apiMember of apiClass.members) {
 
@@ -523,7 +592,7 @@ export class MarkdownDocumenter {
             ])
           );
 
-          this._writeApiItemPage(apiMember);
+          this._appendApiItemPage(constructorsSection, apiMember);
           break;
         }
         case ApiItemKind.Method: {
@@ -535,7 +604,7 @@ export class MarkdownDocumenter {
             ])
           );
 
-          this._writeApiItemPage(apiMember);
+          this._appendApiItemPage(methodsSection, apiMember);
           break;
         }
         case ApiItemKind.Property: {
@@ -560,7 +629,7 @@ export class MarkdownDocumenter {
             );
           }
 
-          this._writeApiItemPage(apiMember);
+          this._appendApiItemPage(propertiesSection, apiMember);
           break;
         }
 
@@ -568,24 +637,44 @@ export class MarkdownDocumenter {
     }
 
     if (eventsTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Events' }));
+      output.appendNode(new DocParagraph({ configuration }, [
+        new DocEmphasisSpan({ configuration, bold: true}, [
+          new DocPlainText({ configuration, text: 'Events' })
+        ])
+      ]));
       output.appendNode(eventsTable);
     }
 
     if (constructorsTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Constructors' }));
+      output.appendNode(new DocParagraph({ configuration }, [
+        new DocEmphasisSpan({ configuration, bold: true}, [
+          new DocPlainText({ configuration, text: 'Constructors' })
+        ])
+      ]));
       output.appendNode(constructorsTable);
     }
 
     if (propertiesTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Properties' }));
+      output.appendNode(new DocParagraph({ configuration }, [
+        new DocEmphasisSpan({ configuration, bold: true}, [
+          new DocPlainText({ configuration, text: 'Properties' })
+        ])
+      ]));
       output.appendNode(propertiesTable);
     }
 
     if (methodsTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Methods' }));
+      output.appendNode(new DocParagraph({ configuration }, [
+        new DocEmphasisSpan({ configuration, bold: true}, [
+          new DocPlainText({ configuration, text: 'Methods' })
+        ])
+      ]));
       output.appendNode(methodsTable);
     }
+
+    this._appendSection(output, constructorsSection);
+    this._appendSection(output, propertiesSection);
+    this._appendSection(output, methodsSection);
   }
 
   /**
@@ -620,7 +709,11 @@ export class MarkdownDocumenter {
     }
 
     if (enumMembersTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Enumeration Members' }));
+      output.appendNode(new DocParagraph({ configuration }, [
+        new DocEmphasisSpan({ configuration, bold: true}, [
+          new DocPlainText({ configuration, text: 'Enumeration Members' })
+        ])
+      ]));
       output.appendNode(enumMembersTable);
     }
   }
@@ -638,10 +731,14 @@ export class MarkdownDocumenter {
     const propertiesTable: DocTable = new DocTable({ configuration,
       headerTitles: [ 'Property', 'Type', 'Description' ]
     });
+    
+    const properitesSection: DocSection = new DocSection({ configuration });
 
     const methodsTable: DocTable = new DocTable({ configuration,
       headerTitles: [ 'Method', 'Description' ]
     });
+
+    const methodsSection: DocSection = new DocSection({ configuration });
 
     for (const apiMember of apiClass.members) {
 
@@ -655,7 +752,7 @@ export class MarkdownDocumenter {
             ])
           );
 
-          this._writeApiItemPage(apiMember);
+          this._appendApiItemPage(methodsSection, apiMember);
           break;
         }
         case ApiItemKind.PropertySignature: {
@@ -678,7 +775,7 @@ export class MarkdownDocumenter {
             );
           }
 
-          this._writeApiItemPage(apiMember);
+          this._appendApiItemPage(properitesSection, apiMember);
           break;
         }
 
@@ -686,19 +783,34 @@ export class MarkdownDocumenter {
     }
 
     if (eventsTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Events' }));
+      output.appendNode(new DocParagraph({ configuration }, [
+        new DocEmphasisSpan({ configuration, bold: true}, [
+          new DocPlainText({ configuration, text: 'Events' })
+        ])
+      ]));
       output.appendNode(eventsTable);
     }
 
     if (propertiesTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Properties' }));
+      output.appendNode(new DocParagraph({ configuration }, [
+        new DocEmphasisSpan({ configuration, bold: true}, [
+          new DocPlainText({ configuration, text: 'Properties' })
+        ])
+      ]));
       output.appendNode(propertiesTable);
     }
 
     if (methodsTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Methods' }));
+      output.appendNode(new DocParagraph({ configuration }, [
+        new DocEmphasisSpan({ configuration, bold: true}, [
+          new DocPlainText({ configuration, text: 'Methods' })
+        ])
+      ]));
       output.appendNode(methodsTable);
     }
+
+    this._appendSection(output, properitesSection);
+    this._appendSection(output, methodsSection);
   }
 
   /**
@@ -735,7 +847,13 @@ export class MarkdownDocumenter {
     }
 
     if (parametersTable.rows.length > 0) {
-      output.appendNode(new DocHeading({ configuration: this._tsdocConfiguration, title: 'Parameters' }));
+      output.appendNode(
+        new DocParagraph({ configuration }, [
+          new DocEmphasisSpan({ configuration, bold: true}, [
+            new DocPlainText({ configuration, text: 'Parameters' })
+          ])
+        ])
+      );
       output.appendNode(parametersTable);
     }
 
@@ -744,7 +862,7 @@ export class MarkdownDocumenter {
       output.appendNode(
         new DocParagraph({ configuration }, [
           new DocEmphasisSpan({ configuration, bold: true}, [
-            new DocPlainText({ configuration, text: 'Returns:' })
+            new DocPlainText({ configuration, text: 'Returns' })
           ])
         ])
       );
@@ -772,10 +890,46 @@ export class MarkdownDocumenter {
           configuration,
           tagName: '@link',
           linkText: Utilities.getConciseSignature(apiItem),
-          urlDestination: this._getLinkFilenameForApiItem(apiItem)
+          urlDestination: this._getUrlDestination(apiItem)
         })
       ])
     ]);
+  }
+
+  private _getUrlDestination(apiItem: ApiItem) {
+    switch (apiItem.kind) {
+      case ApiItemKind.Method:
+      case ApiItemKind.MethodSignature: {
+        const link = Utilities.getSafeFilenameForName(apiItem.displayName);
+        return `#${link}-method`;
+      }
+
+      case ApiItemKind.Package: {
+        const signature = PackageName.getUnscopedName(apiItem.displayName);
+        const link = Utilities.getSafeFilenameForName(signature);
+        return `./${link}`;
+      }
+
+      case ApiItemKind.Property: {
+        const link = Utilities.getSafeFilenameForName(apiItem.displayName);
+        return `#${link}-property`;
+      }
+
+      case ApiItemKind.Method:
+      case ApiItemKind.TypeAlias:
+      case ApiItemKind.Enum:
+      case ApiItemKind.Variable:
+      case ApiItemKind.Function:
+      case ApiItemKind.Interface:
+      case ApiItemKind.Namespace:
+      case ApiItemKind.Class: {
+        const link = Utilities.getSafeFilenameForName(apiItem.displayName);
+        return `./${link}`;
+      }
+    
+      default:
+        return this._getLinkFilenameForApiItem(apiItem)
+    }
   }
 
   /**
@@ -836,39 +990,6 @@ export class MarkdownDocumenter {
     return new DocTableCell({ configuration }, section.nodes);
   }
 
-  private _writeBreadcrumb(output: DocSection, apiItem: ApiItem): void {
-    output.appendNodeInParagraph(new DocLinkTag({
-      configuration: this._tsdocConfiguration,
-      tagName: '@link',
-      linkText: 'Home',
-      urlDestination: this._getLinkFilenameForApiItem(this._apiModel)
-    }));
-
-    for (const hierarchyItem of apiItem.getHierarchy()) {
-      switch (hierarchyItem.kind) {
-        case ApiItemKind.Model:
-        case ApiItemKind.EntryPoint:
-          // We don't show the model as part of the breadcrumb because it is the root-level container.
-          // We don't show the entry point because today API Extractor doesn't support multiple entry points;
-          // this may change in the future.
-          break;
-        default:
-          output.appendNodesInParagraph([
-            new DocPlainText({
-              configuration: this._tsdocConfiguration,
-              text: ' > '
-            }),
-            new DocLinkTag({
-              configuration: this._tsdocConfiguration,
-              tagName: '@link',
-              linkText: hierarchyItem.displayName,
-              urlDestination: this._getLinkFilenameForApiItem(hierarchyItem)
-            })
-          ]);
-      }
-    }
-  }
-
   private _writeBetaWarning(output: DocSection): void {
     const configuration: TSDocConfiguration = this._tsdocConfiguration;
     const betaWarning: string = 'This API is provided as a preview for developers and may change'
@@ -909,6 +1030,13 @@ export class MarkdownDocumenter {
       return 'index.md';
     }
 
+    if (apiItem.kind === ApiItemKind.Package) {
+      const unscopedName = PackageName.getUnscopedName(apiItem.displayName);
+      const baseName = Utilities.getSafeFilenameForName(unscopedName);
+
+      return `${baseName}/index.md`;
+    }
+
     let baseName: string = '';
     for (const hierarchyItem of apiItem.getHierarchy()) {
       // For overloaded methods, add a suffix such as "MyClass.myMethod_2".
@@ -929,7 +1057,8 @@ export class MarkdownDocumenter {
           baseName = Utilities.getSafeFilenameForName(PackageName.getUnscopedName(hierarchyItem.displayName));
           break;
         default:
-          baseName += '.' + qualifiedName;
+          baseName += '/' + qualifiedName;
+          break;
       }
     }
     return baseName + '.md';
